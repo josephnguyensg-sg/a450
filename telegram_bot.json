@@ -1,0 +1,12 @@
+{
+    "telegram_token": "MY_TELE_TOKEN",
+    "tg_max_chars": 3500,
+    "tg_webchat_hint": "\n\n💡 Nội dung bị cắt ngắn. Vui lòng dùng webchat để xem đầy đủ.",
+    "max_history": 20,
+
+    "max_users": 5,
+
+    "allowed_users": [7229895756,1640851107,365332176],
+
+    "start_message": "Hãy đặt câu hỏi hoặc gõ `[query]` kèm SQL để truy vấn dữ liệu.\n\nVí dụ: `[query] SELECT COUNT(*) FROM highmls` hoặc gõ `?` kèm theo câu hỏi truy vấn\n\nLệnh:\n  /start  — Giới thiệu\n  /clear  — Xóa lịch sử hội thoại\n  /status — Kiểm tra hàng đợi"
+}

@@ -1,0 +1,17 @@
+services:
+  a450:
+    build: .
+    image: a450:latest
+    ports:
+      - "8501:8501"
+    volumes:
+      # output/ mount ra ngoài để lưu kết quả
+      - ./output:/app/output
+    environment:
+      - A450_BASE_DIR=/app
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+    restart: unless-stopped
+
+    # Cho phép container gọi Ollama trên host (local)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

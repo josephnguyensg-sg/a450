@@ -1,0 +1,20 @@
+{
+    "page_title": "Zalopay - AML AI Agent",
+    "layout": "centered",
+    "max_history": 20,
+    "webchat_dir": "webchat",
+    "agent_modes": ["A450", "IBFT"],
+    "selectbox_label": "Hãy chọn Agent",
+    "bash_blacklist": ["rm -rf", "sudo", "mkfs", "dd if", ":(){", "shutdown", "reboot", "wget", "curl"],
+    "bash_timeout": 30,
+    "typing_speed": 0.01,
+    "typing_max_chars": 1200,
+    "default_message_a450": {
+        "role": "assistant",
+        "content": "**Chào bạn. Tôi là AML AI Agent của Zalopay.**\n\n**Hãy đặt câu hỏi liên quan đến phân tích, đánh giá và phân loại user**.\n\n💡 *Mẹo:*  \n- Nếu bạn có thể viết SQL statement, hãy nhập cú pháp `[query]` kèm theo câu truy vấn SQL (`[query]SELECT COUNT(*) as cnt FROM highmls`) hoặc chuyển sang tab '🗄️ Truy vấn dữ liệu' ở bên dưới (`SELECT COUNT(*) as cnt FROM highmls`).  \nTôi đã chuẩn bị *Cấu trúc các bảng dữ liệu* có thể truy vấn ở sidebar bên trái để bạn có thể nhập đúng câu SQL. Ngoài ra, để export kết quả query, hãy thêm `[e]` ở cuối câu query  \n- Nếu bạn không biết SQL hãy nhập nội dung truy vấn bằng ngôn ngữ tự nhiên sau ký tự `?`. Ví dụ: `? thống kê số lượng user nhóm gambler`  \n- Nếu bạn quá lười thì cứ đơn giản là nhập câu hỏi ở tab '💬 Chat Thông Thường' và bấm enter."
+    },
+    "default_message_ibft": {
+        "role": "assistant",
+        "content": "**Chào bạn. Phần này chúng tôi lười quá nên chưa phát triển.**"
+    }
+}

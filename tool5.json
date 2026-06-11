@@ -1,0 +1,8 @@
+{
+    "default_tables": {
+        "rpt_users": "output/report_users.parquet",
+        "txn_flg":   "output/transactions_flagged.parquet",
+        "highmls":   "output/report_high_score_users_70.parquet",
+        "maindb":    "a450labeled.parquet"
+    }
+}

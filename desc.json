@@ -1,0 +1,8 @@
+{
+    "F1_histogram.png":  "Fig 1. Biểu đồ phân phối số lượng GD theo điểm do mô hình chấm",
+    "F2_scatter.png":     "Fig 2.Scatter Plot & Bubble Plot - thể hiện quan hệ giữa biến số X (điểm mô hình chấm) và biến số Y (số lượng GD hit rule) kèm theo doanh số GD của user. Nhóm rủi ro cao nằm ở góc trên bên phải. Nhóm rủi ro thấp ở góc trái bên dưới. Nhóm trên bên trái và nhóm dưới bên phải cần được đánh giá để điều chỉnh rule hoặc feature engineering để công cụ hiệu quả hơn.",
+    "F3_top_bookies.png":  "Fig 3. Top 20 bookies nhận tiền từ nhiều người nhất",
+    "F4_vol_by_gr.png":  "Fig 4. Doanh số GD theo từng nhóm được gán nhãn theo rule (rule-based labeling)",
+    "F5_bookie_pnl.png":  "Fig 5. Đặc điểm doanh thu của nhóm bookie",
+    "F6_gambler_picks.png":  "Fig 6. Đặc điểm giao dịch của nhóm gambler"
+}

@@ -1,0 +1,6 @@
+{
+    "raw_dir":    "raw",
+    "ipref_file": "ref/allip.csv",
+    "out_file":   "a450etl.parquet",
+    "chunksize":  500000
+}

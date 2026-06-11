@@ -1,0 +1,30 @@
+{
+    "etl_file":     "a450etl.parquet",
+    "labeled_file": "a450labeled.parquet",
+    "temp_dir":     ".tmp",
+
+    "bet_tail_digits":        [11, 12],
+    "win_pattern_prefix":     "\\bwin\\d+|\\d+win\\b",
+    "zalopay_excl":           "dung zalopay chuyen tien",
+    "pattern_b1":             "chuyen\\s+(khoan|tien)\\s+\\d{6}\\s*$",
+    "pattern_b2":             "chuyen\\s+(khoan|tien)\\s+\\d{5}\\s*$",
+
+    "bookie_min_senders":       10,
+    "bookie_recv_send_ratio":   1.0,
+    "bookie_recv_bet_tail":     0.30,
+    "bookie_send_win_desc":     0.10,
+    "bookie_send_non_bet_tail": 0.70,
+    "bookie_cond_min":          5.0,
+
+    "weight_min_senders":       1.0,
+    "weight_recv_send_ratio":   2.0,
+    "weight_recv_bet_tail":     5.0,
+    "weight_send_win_non_bet":  5.0,
+
+    "str_ip_change_min":        2,
+    "str_smurfing_recv_users":  10,
+    "str_smurfing_recv_amount": 500000,
+    "str_smurfing_send_amount": 5000000,
+    "str_rapid_tx_seconds":     10,
+    "str_rapid_tx_min_pairs":   2
+}

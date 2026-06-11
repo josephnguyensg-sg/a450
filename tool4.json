@@ -1,0 +1,18 @@
+{
+    "labeled_file":       "a450labeled.parquet",
+    "output_dir":         "output",
+    "model_path":         "models/behavior_model.pkl",
+    "ml_score_threshold": 70,
+
+    "ml_features": [
+        "sender_tx_count", "sender_unique_receivers",
+        "sender_avg_amount", "sender_max_amount", "sender_std_amount",
+        "sender_unique_ips", "sender_bet_tail_ratio",
+        "sender_win_desc_ratio", "sender_b1_ratio", "sender_b2_ratio",
+        "recv_tx_count", "recv_unique_senders",
+        "recv_avg_amount", "recv_max_amount", "recv_std_amount",
+        "recv_bet_tail_ratio", "recv_win_desc_ratio",
+        "recv_b1_ratio", "recv_b2_ratio", "recv_send_tx_ratio",
+        "amount", "is_bet_tail", "desc_has_win"
+    ]
+}
