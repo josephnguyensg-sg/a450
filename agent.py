@@ -31,7 +31,7 @@
 import os
 import re
 
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
@@ -60,13 +60,33 @@ OUTPUT_DIR   = os.environ.get("A450_OUTPUT_DIR",   os.path.join(_BASE_DIR, _CFG[
 # 2. LLM KHỞI TẠO
 # =============================================================================
 
-llm = ChatOllama(
-    model=_CFG["llm_model"],
-    temperature=_CFG["llm_temperature"],
-    num_ctx=_CFG["llm_num_ctx"],
-    think=_CFG["llm_think"],
-    timeout=_CFG["llm_timeout"],
+_AI_PLATFORM_BASE_URL = os.environ.get(
+    "AI_PLATFORM_BASE_URL",
+    "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1",
 )
+_llm = None
+_llm_with_tools = None
+
+
+def _get_llm():
+    """Khởi tạo LLM khi thật sự cần, tránh làm container chết lúc startup."""
+    global _llm
+    if _llm is None:
+        api_key = os.environ.get("AI_PLATFORM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "Thiếu AI_PLATFORM_API_KEY. Hãy khai báo secret/env này trên runtime VCR "
+                "trước khi dùng các chức năng cần LLM."
+            )
+        _llm = ChatOpenAI(
+            model=_CFG["llm_model"],
+            temperature=_CFG["llm_temperature"],
+            max_tokens=_CFG["llm_num_ctx"],
+            timeout=_CFG.get("llm_timeout"),
+            openai_api_key=api_key,
+            openai_api_base=_AI_PLATFORM_BASE_URL,
+        )
+    return _llm
 
 
 # =============================================================================
@@ -203,7 +223,7 @@ def _format_polars_df(df, rows: int) -> str:
 
 def _query_tu_nhien(cau_hoi: str) -> str:
     prompt = _SQL_PROMPT_TOOL5.format(schema=_SCHEMA_TOOL5, cau_hoi=cau_hoi)
-    sql_raw = llm.invoke(prompt).content.strip()
+    sql_raw = _get_llm().invoke(prompt).content.strip()
     sql = _lam_sach_sql(sql_raw)
 
     print(f"\n[NHÁNH B] SQL sinh ra:\n{sql}\n")
@@ -237,7 +257,7 @@ def _query_tu_nhien(cau_hoi: str) -> str:
 def _tra_cuu_report(cau_hoi: str) -> str:
     """Sinh SQL → chạy trên tool5 (Polars SQLContext). Dùng cho câu hỏi về báo cáo user."""
     prompt = _SQL_PROMPT_TOOL5.format(schema=_SCHEMA_TOOL5, cau_hoi=cau_hoi)
-    sql_raw = llm.invoke(prompt).content.strip()
+    sql_raw = _get_llm().invoke(prompt).content.strip()
     sql = _lam_sach_sql(sql_raw)
 
     print(f"\n[NHÁNH C1] SQL sinh ra:\n{sql}\n")
@@ -325,7 +345,7 @@ def _tra_cuu_giao_dich(cau_hoi: str) -> str:
         prompt = _SQL_PROMPT_DUCKDB.format(schema=_SCHEMA_LABELED, cau_hoi=cau_hoi) + error_hint
 
         try:
-            raw = llm.invoke(prompt).content.strip()
+            raw = _get_llm().invoke(prompt).content.strip()
         except Exception as e:
             con.close()
             return f"❌ Lỗi gọi LLM: {e}"
@@ -515,7 +535,13 @@ tra_cuu_giao_dich_tool = StructuredTool.from_function(
 
 DANH_SACH_TOOLS = [buoc1_tool, buoc2_tool, buoc3_tool, buoc4_tool,
                    tra_cuu_report_tool, tra_cuu_giao_dich_tool]
-llm_with_tools  = llm.bind_tools(DANH_SACH_TOOLS)
+
+
+def _get_llm_with_tools():
+    global _llm_with_tools
+    if _llm_with_tools is None:
+        _llm_with_tools = _get_llm().bind_tools(DANH_SACH_TOOLS)
+    return _llm_with_tools
 
 
 # =============================================================================
@@ -702,7 +728,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
         messages.extend(_rut_gon_lich_su(chat_history))
         if not messages or messages[-1].get("content") != user_question:
             messages.append({"role": "user", "content": user_question})
-        ai_msg = llm_with_tools.invoke(messages)
+        ai_msg = _get_llm_with_tools().invoke(messages)
         if ai_msg.tool_calls:
             messages.append(ai_msg)
             for tc in ai_msg.tool_calls:
@@ -711,7 +737,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
                     return err
                 out = _invoke_tool(tc["name"], tc["args"])
                 messages.append({"role": "tool", "content": str(out), "tool_call_id": tc["id"]})
-            result = llm.invoke(messages).content
+            result = _get_llm().invoke(messages).content
         else:
             result = ai_msg.content
         _log("C4", user_question, result)
@@ -723,7 +749,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
     messages = [{"role": "system", "content": _SYSTEM_PROMPT_FULL}]
     messages.extend(_rut_gon_lich_su(chat_history))
     messages.append({"role": "user", "content": user_question})
-    ai_msg = llm_with_tools.invoke(messages)
+    ai_msg = _get_llm_with_tools().invoke(messages)
 
     if ai_msg.tool_calls:
         messages.append(ai_msg)
@@ -734,7 +760,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
             print(f"[LOG] Fallback LLM → kích hoạt: {tc['name']}")
             out = _invoke_tool(tc["name"], tc["args"])
             messages.append({"role": "tool", "content": str(out), "tool_call_id": tc["id"]})
-        result = llm.invoke(messages).content
+        result = _get_llm().invoke(messages).content
     else:
         result = ai_msg.content
 

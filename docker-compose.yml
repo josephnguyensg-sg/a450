@@ -5,13 +5,11 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      # output/ mount ra ngoài để lưu kết quả
       - ./output:/app/output
     environment:
       - A450_BASE_DIR=/app
-      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - AI_PLATFORM_API_KEY=${AI_PLATFORM_API_KEY:-}
+      - AI_PLATFORM_BASE_URL=${AI_PLATFORM_BASE_URL:-https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1}
+      - ENABLE_TELEGRAM_BOT=${ENABLE_TELEGRAM_BOT:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
     restart: unless-stopped
-
-    # Cho phép container gọi Ollama trên host (local)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
