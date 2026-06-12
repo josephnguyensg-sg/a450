@@ -1,7 +1,7 @@
 {
-    "gmail_account":      "joseph.nguyen.sg@gmail.com",
+    "gmail_account":      "gmail@gmail.com",
     "gmail_app_password": "MY_APP_PW",
-    "to_email":           "aml-zion@vng.com.vn",
+    "to_email":           "sample@com.vn",
     "email_subject":      "AML - A450 Reports",
     "email_body":         "Đính kèm là file HTML chứa toàn bộ biểu đồ của A450 reports.",
     "html_title":         "A450 Report",

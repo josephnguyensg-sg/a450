@@ -2,14 +2,20 @@
 set -euo pipefail
 
 APP_PORT="${PORT:-8080}"
-STREAMLIT_BASE_URL_PATH="${STREAMLIT_BASE_URL_PATH:-health}"
+STREAMLIT_BASE_URL_PATH="${STREAMLIT_BASE_URL_PATH:-}"
+
+streamlit_args=(
+  --server.port="$APP_PORT"
+  --server.address=0.0.0.0
+  --server.headless=true
+)
+
+if [[ -n "$STREAMLIT_BASE_URL_PATH" ]]; then
+  streamlit_args+=(--server.baseUrlPath="$STREAMLIT_BASE_URL_PATH")
+fi
 
 echo "=== Khởi động Streamlit ==="
-streamlit run app.py \
-  --server.port="$APP_PORT" \
-  --server.address=0.0.0.0 \
-  --server.headless=true \
-  --server.baseUrlPath="$STREAMLIT_BASE_URL_PATH" &
+streamlit run app.py "${streamlit_args[@]}" &
 streamlit_pid=$!
 
 if [[ "${ENABLE_TELEGRAM_BOT:-false}" == "true" ]]; then
