@@ -68,14 +68,56 @@ _llm = None
 _llm_with_tools = None
 
 
+def _get_api_key_and_source():
+    for env_name in ("AI_PLATFORM_API_KEY", "OPENAI_API_KEY"):
+        api_key = os.environ.get(env_name)
+        if api_key:
+            return api_key, env_name
+    return None, None
+
+
+def _format_llm_auth_error() -> str:
+    _, api_key_source = _get_api_key_and_source()
+    api_key_source = api_key_source or "AI_PLATFORM_API_KEY/OPENAI_API_KEY"
+    model = _CFG.get("llm_model", "(unknown)")
+    return (
+        "Lỗi xác thực LLM (401 Unauthorized). "
+        f"Runtime đang dùng `{api_key_source}` với "
+        f"`AI_PLATFORM_BASE_URL={_AI_PLATFORM_BASE_URL}` và `llm_model={model}`. "
+        "Hãy kiểm tra key còn hiệu lực và thuộc đúng endpoint. "
+        "Nếu dùng OpenAI API key, đặt `AI_PLATFORM_BASE_URL=https://api.openai.com/v1` "
+        "và đổi `llm_model` sang model OpenAI hợp lệ. "
+        "Nếu dùng endpoint VNG AI Platform, đặt `AI_PLATFORM_API_KEY` của VNG; "
+        "`AI_PLATFORM_API_KEY` được ưu tiên hơn `OPENAI_API_KEY` khi cả hai cùng tồn tại."
+    )
+
+
+def _is_llm_auth_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 401:
+        return True
+    exc_text = str(exc)
+    exc_name = exc.__class__.__name__
+    return (
+        "AuthenticationError" in exc_name
+        or "Error code: 401" in exc_text
+        or "Unauthorized" in exc_text
+    )
+
+
+def _raise_friendly_llm_error(exc: Exception):
+    if _is_llm_auth_error(exc):
+        raise RuntimeError(_format_llm_auth_error()) from exc
+
+
 def _get_llm():
     """Khởi tạo LLM khi thật sự cần, tránh làm container chết lúc startup."""
     global _llm
     if _llm is None:
-        api_key = os.environ.get("AI_PLATFORM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        api_key, _ = _get_api_key_and_source()
         if not api_key:
             raise RuntimeError(
-                "Thiếu AI_PLATFORM_API_KEY. Hãy khai báo secret/env này trên runtime VCR "
+                "Thiếu AI_PLATFORM_API_KEY hoặc OPENAI_API_KEY. Hãy khai báo secret/env này trên runtime VCR "
                 "trước khi dùng các chức năng cần LLM."
             )
         _llm = ChatOpenAI(
@@ -87,6 +129,14 @@ def _get_llm():
             openai_api_base=_AI_PLATFORM_BASE_URL,
         )
     return _llm
+
+
+def _invoke_llm(payload):
+    try:
+        return _get_llm().invoke(payload)
+    except Exception as exc:
+        _raise_friendly_llm_error(exc)
+        raise
 
 
 # =============================================================================
@@ -223,7 +273,7 @@ def _format_polars_df(df, rows: int) -> str:
 
 def _query_tu_nhien(cau_hoi: str) -> str:
     prompt = _SQL_PROMPT_TOOL5.format(schema=_SCHEMA_TOOL5, cau_hoi=cau_hoi)
-    sql_raw = _get_llm().invoke(prompt).content.strip()
+    sql_raw = _invoke_llm(prompt).content.strip()
     sql = _lam_sach_sql(sql_raw)
 
     print(f"\n[NHÁNH B] SQL sinh ra:\n{sql}\n")
@@ -257,7 +307,7 @@ def _query_tu_nhien(cau_hoi: str) -> str:
 def _tra_cuu_report(cau_hoi: str) -> str:
     """Sinh SQL → chạy trên tool5 (Polars SQLContext). Dùng cho câu hỏi về báo cáo user."""
     prompt = _SQL_PROMPT_TOOL5.format(schema=_SCHEMA_TOOL5, cau_hoi=cau_hoi)
-    sql_raw = _get_llm().invoke(prompt).content.strip()
+    sql_raw = _invoke_llm(prompt).content.strip()
     sql = _lam_sach_sql(sql_raw)
 
     print(f"\n[NHÁNH C1] SQL sinh ra:\n{sql}\n")
@@ -345,7 +395,7 @@ def _tra_cuu_giao_dich(cau_hoi: str) -> str:
         prompt = _SQL_PROMPT_DUCKDB.format(schema=_SCHEMA_LABELED, cau_hoi=cau_hoi) + error_hint
 
         try:
-            raw = _get_llm().invoke(prompt).content.strip()
+            raw = _invoke_llm(prompt).content.strip()
         except Exception as e:
             con.close()
             return f"❌ Lỗi gọi LLM: {e}"
@@ -544,6 +594,14 @@ def _get_llm_with_tools():
     return _llm_with_tools
 
 
+def _invoke_llm_with_tools(payload):
+    try:
+        return _get_llm_with_tools().invoke(payload)
+    except Exception as exc:
+        _raise_friendly_llm_error(exc)
+        raise
+
+
 # =============================================================================
 # 8. PIPELINE GUARD
 # =============================================================================
@@ -728,7 +786,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
         messages.extend(_rut_gon_lich_su(chat_history))
         if not messages or messages[-1].get("content") != user_question:
             messages.append({"role": "user", "content": user_question})
-        ai_msg = _get_llm_with_tools().invoke(messages)
+        ai_msg = _invoke_llm_with_tools(messages)
         if ai_msg.tool_calls:
             messages.append(ai_msg)
             for tc in ai_msg.tool_calls:
@@ -737,7 +795,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
                     return err
                 out = _invoke_tool(tc["name"], tc["args"])
                 messages.append({"role": "tool", "content": str(out), "tool_call_id": tc["id"]})
-            result = _get_llm().invoke(messages).content
+            result = _invoke_llm(messages).content
         else:
             result = ai_msg.content
         _log("C4", user_question, result)
@@ -749,7 +807,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
     messages = [{"role": "system", "content": _SYSTEM_PROMPT_FULL}]
     messages.extend(_rut_gon_lich_su(chat_history))
     messages.append({"role": "user", "content": user_question})
-    ai_msg = _get_llm_with_tools().invoke(messages)
+    ai_msg = _invoke_llm_with_tools(messages)
 
     if ai_msg.tool_calls:
         messages.append(ai_msg)
@@ -760,7 +818,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
             print(f"[LOG] Fallback LLM → kích hoạt: {tc['name']}")
             out = _invoke_tool(tc["name"], tc["args"])
             messages.append({"role": "tool", "content": str(out), "tool_call_id": tc["id"]})
-        result = _get_llm().invoke(messages).content
+        result = _invoke_llm(messages).content
     else:
         result = ai_msg.content
 

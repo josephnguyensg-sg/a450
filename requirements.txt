@@ -1,9 +1,11 @@
 langchain-core==1.4.0
+langchain-openai==1.2.2
 langchain-ollama==1.1.0
 matplotlib==3.10.9
 numpy==2.4.6
 pandas==3.0.2
 plotly==6.6.0
+kaleido==1.2.0
 polars==1.39.0
 pyarrow==24.0.0
 pydantic==2.13.4

@@ -1,5 +1,5 @@
 {
-    "telegram_token": "MY_TELE_TOKEN",
+    "telegram_token": "",
     "tg_max_chars": 3500,
     "tg_webchat_hint": "\n\n💡 Nội dung bị cắt ngắn. Vui lòng dùng webchat để xem đầy đủ.",
     "max_history": 20,
