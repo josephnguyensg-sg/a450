@@ -10,9 +10,6 @@ import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from tool6 import export_html_and_send
 
 # ---------------------------------------------------------------------------
@@ -232,11 +229,14 @@ def _create_visualizations(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set: set,
 
     # ========================== 1. ML Score Histogram ==========================
     ml_vals = df.filter(pl.col('ml_score').is_not_null())['ml_score'].to_list()
-    fig1 = px.histogram(x=ml_vals, nbins=60, title='ML Score Distribution — Non-rule transactions', labels={'x': 'ML Score (0=normal, 100=abnormal)'}, color_discrete_sequence=['#1E88E5'], text_auto='.2s')
-    fig1.update_traces(textposition='outside', textfont_size=11)
-    # fig1.write_html(os.path.join(output_dir, "F1_histogram.html")) -> nếu cần html thì chuyển thành code
-    fig1.update_layout(width=1400,height=600)
-    fig1.write_image(os.path.join(output_dir, "F1_histogram.png"), scale=2)
+    plt.figure(figsize=(14, 6))
+    sns.histplot(ml_vals, bins=60, color="#1E88E5")
+    plt.title("ML Score Distribution - Non-rule transactions", fontsize=16)
+    plt.xlabel("ML Score (0=normal, 100=abnormal)")
+    plt.ylabel("Transactions")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "F1_histogram.png"), dpi=200, bbox_inches="tight")
+    plt.close()
     print("✅ Chart 1 đã được tạo thành công!")
 
     # ============================= 2. Scatter Plot ============================
@@ -268,28 +268,18 @@ def _create_visualizations(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set: set,
                 .to_pandas()
             )
 
-            fig3 = go.Figure(go.Bar(
-                y=top_bk['appuser'],
-                x=top_bk['unique_senders'],
-                orientation='h',
-                marker=dict(
-                    color=top_bk['unique_senders'],
-                    colorscale='Reds',
-                    reversescale=False
-                ),
-                text=top_bk['unique_senders'],
-                textposition='outside'
-            ))
-            fig3.update_layout(
-                title='Top 20 Bookies by Unique Senders',
-                xaxis_title='Unique Senders',
-                yaxis={'categoryorder': 'total ascending'},
-                height=600,
-                template='plotly_white'
-            )
-            fig3.update_layout(width=1000,height=600)
-            #fig3.write_html(os.path.join(output_dir, "F3_top_bookies.html")) -> nếu cần xuất html thì chuyển thành code
-            fig3.write_image(os.path.join(output_dir, "F3_top_bookies.png"), scale=2)
+            top_bk = top_bk.sort_values("unique_senders", ascending=True)
+            plt.figure(figsize=(10, 6))
+            colors3 = sns.color_palette("Reds", n_colors=max(len(top_bk), 1))
+            plt.barh(top_bk["appuser"], top_bk["unique_senders"], color=colors3)
+            for idx, value in enumerate(top_bk["unique_senders"]):
+                plt.text(value, idx, f" {value}", va="center", fontsize=9)
+            plt.title("Top 20 Bookies by Unique Senders", fontsize=14)
+            plt.xlabel("Unique Senders")
+            plt.ylabel("Bookie")
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_dir, "F3_top_bookies.png"), dpi=200, bbox_inches="tight")
+            plt.close()
             print("✅ Chart 3 đã được tạo thành công!")
         except Exception as e:
             print(f"  ⚠️ Top Bookies chart skipped: {e}")
@@ -322,27 +312,20 @@ def _create_visualizations(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set: set,
             amt[g] = 0
             print(f"  {g:12s}: Không có cột cấu hình")
     
-        # Tạo biểu đồ
-    fig = go.Figure(go.Bar(
-        x=list(amt.keys()),
-        y=[v/1e9 for v in amt.values()],
-        text=[f'{v/1e9:.1f}B' for v in amt.values()],
-        textposition='outside',
-        marker_color=colors,
-    ))
-    
-    fig.update_layout(
-        title='Fig.4 Tổng tiền giao dịch theo nhóm (Tỷ VND)',
-        xaxis_title='Nhóm',
-        yaxis_title='Tỷ VND',
-        template='plotly_white',
-        height=500,
-        width=900,
-    )
-    
-        # Lưu file
-    #fig.write_html(os.path.join(OUTPUT_DIR, "F4_vol_by_gr.html")) -> lấy html thì chuyển thành code
-    fig.write_image(os.path.join(OUTPUT_DIR, "F4_vol_by_gr.png"), scale=1)
+    # Tạo biểu đồ
+    groups = list(amt.keys())
+    values = [v / 1e9 for v in amt.values()]
+    plt.figure(figsize=(9, 5))
+    bars = plt.bar(groups, values, color=colors)
+    for bar, value in zip(bars, values):
+        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{value:.1f}B", ha="center", va="bottom")
+    plt.title("Fig.4 Tong tien giao dich theo nhom (Ty VND)", fontsize=14)
+    plt.xlabel("Nhom")
+    plt.ylabel("Ty VND")
+    plt.xticks(rotation=20, ha="right")
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_DIR, "F4_vol_by_gr.png"), dpi=200, bbox_inches="tight")
+    plt.close()
     print("\n✅ Chart 4 đã được tạo thành công!")
 
     # ========================= 5. Bookie PnL ===========================
@@ -380,43 +363,26 @@ def _create_visualizations(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set: set,
         .to_pandas()
     )
     
-        # Tạo biểu đồ
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=['Bookie Volume (Bil VND)', "PnL Distribution by In/Out Ratio"],
-        column_widths=[0.35, 0.65],
-    )
-    
-        # Chart trái: In vs Out
-    fig.add_trace(go.Bar(
-        x=['In', 'Out'],
-        y=[summary['total_in_bil'], summary['total_out_bil']],
-        marker_color=['#00CC33', '#FF6600'],
-        text=[f"{summary['total_in_bil']:.1f}B", f"{summary['total_out_bil']:.1f}B"],
-        textposition='outside',
-    ), row=1, col=1)
-    
-        # Chart phải: Phân phối PnL
-    colors = ['#CC3300', '#FF0000', '#33CC00', '#339900', '#006600']
-    fig.add_trace(go.Bar(
-        x=df_cat['behavior_group'],
-        y=df_cat['count'],
-        marker_color=colors,
-        text=df_cat['count'],
-        textposition='outside',
-    ), row=1, col=2)
-    
-    fig.update_layout(
-        title=f"Fig.5 Bookie Money Flow & PnL | Overall Ratio: {summary['avg_in_out_ratio']:.2f}x",
-        showlegend=False,
-        template='plotly_white',
-        height=500,
-        width=1100,
-    )
-    
-        # Lưu file
-    #fig.write_html(os.path.join(OUTPUT_DIR, "F5_bookie_pnl.html"))
-    fig.write_image(os.path.join(OUTPUT_DIR, "F5_bookie_pnl.png"), scale=1)
+    # Tạo biểu đồ
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), gridspec_kw={"width_ratios": [1, 2]})
+    vol_values = [summary["total_in_bil"], summary["total_out_bil"]]
+    axes[0].bar(["In", "Out"], vol_values, color=["#00CC33", "#FF6600"])
+    for idx, value in enumerate(vol_values):
+        axes[0].text(idx, value, f"{value:.1f}B", ha="center", va="bottom")
+    axes[0].set_title("Bookie Volume (Bil VND)")
+    axes[0].set_ylabel("Bil VND")
+
+    pnl_colors = ["#CC3300", "#FF0000", "#33CC00", "#339900", "#006600"]
+    axes[1].bar(df_cat["behavior_group"], df_cat["count"], color=pnl_colors[:len(df_cat)])
+    for idx, value in enumerate(df_cat["count"]):
+        axes[1].text(idx, value, f"{value}", ha="center", va="bottom")
+    axes[1].set_title("PnL Distribution by In/Out Ratio")
+    axes[1].tick_params(axis="x", rotation=25)
+
+    fig.suptitle(f"Fig.5 Bookie Money Flow & PnL | Overall Ratio: {summary['avg_in_out_ratio']:.2f}x")
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUTPUT_DIR, "F5_bookie_pnl.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
     print("\n✅ Chart 5 đã được tạo thành công!")
     
     # ======================6. Thống kê theo kèo đặt cược===============================
@@ -443,40 +409,24 @@ def _create_visualizations(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set: set,
     print("Thống kê Gambler theo đuôi tiền:")
     print(gambler_tail)
     
-        # Tạo biểu đồ
-    fig = make_subplots(
-        rows=1, cols=3,
-        subplot_titles=['Txns', 'Vol. (Bil VND)', 'Gamblers'],
-    )
-    
+    # Tạo biểu đồ
     tail_df = gambler_tail.to_pandas()
-    
-    for col_idx, (col, title) in enumerate([
-        ('tx_count',       'Txns'),
-        ('total_amount',   'Vol.'),
-        ('unique_gamblers','Gamblers'),
-    ], start=1):
-        
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    for ax, (col, title) in zip(axes, [
+        ("tx_count", "Txns"),
+        ("total_amount", "Vol. (Bil VND)"),
+        ("unique_gamblers", "Gamblers"),
+    ]):
         y = tail_df[col] / (1e9 if col == 'total_amount' else 1)
-        fig.add_trace(go.Bar(
-            x=tail_df['bet_tail_type'],
-            y=y,
-            text=[f'{v:,.0f}' for v in y],
-            textposition='outside',
-            marker_color=['#E53935', '#1E88E5'],
-            showlegend=False,
-        ), row=1, col=col_idx)
-    
-    fig.update_layout(
-        title='Fig. 6 Thống kê Gambler theo kèo đặt (011 vs 012)',
-        template='plotly_white',
-        height=450,
-        width=1100,
-    )
-    
-        # Lưu file
-    #fig.write_html(os.path.join(OUTPUT_DIR, "F6_gambler_picks.html"))
-    fig.write_image(os.path.join(OUTPUT_DIR, "F6_gambler_picks.png"), scale=1)
+        ax.bar(tail_df["bet_tail_type"], y, color=["#E53935", "#1E88E5"][:len(tail_df)])
+        for idx, value in enumerate(y):
+            ax.text(idx, value, f"{value:,.0f}", ha="center", va="bottom")
+        ax.set_title(title)
+
+    fig.suptitle("Fig. 6 Thong ke Gambler theo keo dat (011 vs 012)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUTPUT_DIR, "F6_gambler_picks.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
     
     print("\n✅ Chart 6 đã được tạo thành công!")
 

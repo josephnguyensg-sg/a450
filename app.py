@@ -1,5 +1,7 @@
 import time
 import json
+import glob
+import re
 import subprocess
 import streamlit as st
 from streamlit_ace import st_ace  # Thư viện Editor dành cho chế độ Query SQL
@@ -19,6 +21,8 @@ with open(os.path.join(BASE_DIR, "app.json"), encoding="utf-8") as _f:
     _CFG = json.load(_f)
 
 _WEBCHAT_DIR = os.path.join(BASE_DIR, _CFG["webchat_dir"])
+_OUTPUT_DIR  = os.environ.get("A450_OUTPUT_DIR", os.path.join(BASE_DIR, "output"))
+_RAW_DIR     = os.environ.get("A450_RAW_DIR", os.path.join(BASE_DIR, "raw"))
 BOT_AVATAR   = os.path.join(_WEBCHAT_DIR, "bot_avatar.png")
 USER_AVATAR  = os.path.join(_WEBCHAT_DIR, "user_avatar.png")
 FAVICON      = os.path.join(_WEBCHAT_DIR, "favicon.png")
@@ -31,24 +35,120 @@ st.set_page_config(
 
 MAX_HISTORY          = _CFG["max_history"]
 DEFAULT_MESSAGE_A450 = _CFG["default_message_a450"]
-DEFAULT_MESSAGE_IBFT = _CFG["default_message_ibft"]
+DEFAULT_MESSAGE_HINH_PHAT = (
+    {"role": "assistant", "content": iagent.get_opening_message()}
+    if iagent is not None
+    else _CFG["default_message_ibft"]
+)
 _AGENT_MODES         = _CFG["agent_modes"]
 _SELECTBOX_LABEL     = _CFG["selectbox_label"]
 _BASH_BLACKLIST      = _CFG["bash_blacklist"]
 _BASH_TIMEOUT        = _CFG["bash_timeout"]
 _TYPING_SPEED        = _CFG["typing_speed"]
 _TYPING_MAX_CHARS    = _CFG["typing_max_chars"]
+_CODE_BLOCK_PATTERN  = re.compile(r"(```[\s\S]*?```)")
+
+
+def _get_report_images() -> list[str]:
+    return sorted(glob.glob(os.path.join(_OUTPUT_DIR, "*.png")))
+
+
+def _should_attach_report_images(response: str, user_query: str) -> bool:
+    text = f"{response}\n{user_query}".lower()
+    triggers = (
+        "bước 3 hoàn tất",
+        "buoc 3 hoan tat",
+        "xuất báo cáo",
+        "xuat bao cao",
+        "tạo chart",
+        "tao chart",
+        "tạo biểu đồ",
+        "tao bieu do",
+        "hiển thị ảnh",
+        "hien thi anh",
+        "hình ảnh",
+        "hinh anh",
+    )
+    return any(trigger in text for trigger in triggers)
+
+
+def _render_message_content(message: dict):
+    content = message.get("content", "")
+    if content:
+        _render_text_with_code_blocks(content)
+    for image_path in message.get("images", []):
+        if os.path.exists(image_path):
+            st.image(image_path, caption=os.path.basename(image_path), use_container_width=True)
+
+
+def _markdown_keep_linebreaks(text: str) -> str:
+    return text.replace("\n", "  \n")
+
+
+def _render_markdown_text(text: str):
+    if text.strip():
+        st.markdown(_markdown_keep_linebreaks(text.strip()))
+
+
+def _render_text_with_code_blocks(text: str):
+    for seg in _CODE_BLOCK_PATTERN.split(text):
+        if not seg:
+            continue
+        if seg.startswith("```"):
+            code = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", seg)
+            code = re.sub(r"\n?```$", "", code)
+            st.code(code, language=None)
+        else:
+            _render_markdown_text(seg)
+
+
+def _safe_csv_filename(filename: str) -> str:
+    base = os.path.basename(filename or "")
+    name, ext = os.path.splitext(base)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    if not safe_name:
+        safe_name = f"upload_{time.strftime('%Y%m%d_%H%M%S')}"
+    return f"{safe_name}.csv"
+
+
+def _unique_raw_path(filename: str) -> str:
+    safe_filename = _safe_csv_filename(filename)
+    stem, ext = os.path.splitext(safe_filename)
+    candidate = os.path.join(_RAW_DIR, safe_filename)
+    if not os.path.exists(candidate):
+        return candidate
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    counter = 1
+    while True:
+        candidate = os.path.join(_RAW_DIR, f"{stem}_{ts}_{counter}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+
+def _save_uploaded_csv_files(uploaded_files) -> list[str]:
+    os.makedirs(_RAW_DIR, exist_ok=True)
+    saved_paths = []
+    for uploaded_file in uploaded_files:
+        if not uploaded_file.name.lower().endswith(".csv"):
+            raise ValueError(f"File `{uploaded_file.name}` không phải định dạng .csv")
+        dest_path = _unique_raw_path(uploaded_file.name)
+        with open(dest_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        saved_paths.append(dest_path)
+    return saved_paths
 
 # ── Khởi tạo session state ────────────────────────────────────────────────
 if "agent_mode" not in st.session_state:
-    st.session_state.agent_mode = "A450"
+    st.session_state.agent_mode = _AGENT_MODES[0]
 if "messages" not in st.session_state:
     st.session_state.messages = [DEFAULT_MESSAGE_A450]
 
-st.title("Zalopay - AML AI Agent")
-st.caption("_**Lưu ý:**_")
-st.caption("  _AI Agent này chỉ phân tích giao dịch chuyển tiền tại Zalopay trên môi trường local_")
-st.caption("  _Dữ liệu giao dịch là giả để thử nghiệm mô hình machine learning_")
+st.title("Zalopay - Anti Money Laundering _(AML)_ AI Agent")
+st.caption("_**Bạn có thể chọn chức năng của Agent ở góc bên bên trái màn hình:**_")
+st.caption("  _[Xử lý & phân tích dữ liệu]: Hỗ trợ nhân viên AML rút ngắn thời gian xử lý dữ liệu, sàng lọc giao dịch và phân loại khách hàng và rà soát các dấu hiệu đáng ngờ trong hoạt động chuyển tiền tại Zalopay_")
+st.caption("  _[Truy vấn lịch]: Phân tích hành vi/hoạt động được mô tả có phạm tội hay không và xác định hình phạt tương ứng (số lịch phải bóc, số tiền bị tịch thu...)._")
 st.caption("_____________________________________________________________________________________")
 
 with st.sidebar:
@@ -56,15 +156,32 @@ with st.sidebar:
     selected_mode = st.selectbox(_SELECTBOX_LABEL, _AGENT_MODES, index=0 if st.session_state.agent_mode == _AGENT_MODES[0] else 1)
     if selected_mode != st.session_state.agent_mode:
         st.session_state.agent_mode = selected_mode
-        st.session_state.messages = [DEFAULT_MESSAGE_A450 if selected_mode == "A450" else DEFAULT_MESSAGE_IBFT]
+        st.session_state.messages = [DEFAULT_MESSAGE_A450 if selected_mode == "Xử lý & phân tích dữ liệu" else DEFAULT_MESSAGE_HINH_PHAT]
         st.rerun()
 
-    st.header("Tiện ích")
+    st.header("Tiện ích & Tra cứu")
     if st.button("🗑️ Xóa hội thoại"):
-        st.session_state.messages = [DEFAULT_MESSAGE_A450 if st.session_state.agent_mode == "A450" else DEFAULT_MESSAGE_IBFT]
+        st.session_state.messages = [DEFAULT_MESSAGE_A450 if st.session_state.agent_mode == "Xử lý & phân tích dữ liệu" else DEFAULT_MESSAGE_HINH_PHAT]
         st.rerun()
 
-    with st.expander("🗂️ Cấu trúc các bảng dữ liệu"):
+    if st.session_state.agent_mode == "Xử lý & phân tích dữ liệu":
+        with st.expander("📤 Upload CSV vào raw", expanded=False):
+            uploaded_csv_files = st.file_uploader(
+                "Chọn file .csv",
+                type=["csv"],
+                accept_multiple_files=True,
+                key="raw_csv_uploader",
+            )
+            if st.button("📥 Lưu vào raw", disabled=not uploaded_csv_files):
+                try:
+                    saved_paths = _save_uploaded_csv_files(uploaded_csv_files)
+                    st.success(f"Đã lưu {len(saved_paths)} file vào raw.")
+                    for saved_path in saved_paths:
+                        st.caption(f"- {os.path.relpath(saved_path, BASE_DIR)}")
+                except Exception as e:
+                    st.error(f"Không lưu được file: {e}")
+
+    with st.expander("🗂️ Cấu trúc bảng dữ liệu"):
         with st.expander("`rpt_users`"):
             st.code("""user_id             str
 user_group          str
@@ -174,20 +291,20 @@ hit_any_rule            i8""", language=None)
 for message in st.session_state.messages:
     avatar = BOT_AVATAR if message["role"] == "assistant" else USER_AVATAR
     with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"])
+        _render_message_content(message)
 
 st.write("---")
 
 # 2. THIẾT KẾ GIAO DIỆN TÁCH BIỆT: CHAT THƯỜNG VS QUERY SQL
 # Sử dụng st.tabs để người dùng vừa có thể gõ [query] ở chat thường, vừa có không gian gõ SQL chuyên nghiệp
-tab_chat, tab_sql = st.tabs(["💬 Chat Thông Thường", "🗄️ Truy vấn dữ liệu"])
+tab_chat, tab_sql = st.tabs(["💬 Chat thông thường", "🗄️ Truy vấn dữ liệu"])
 
 user_input = ""
 is_query_mode = False
 
 # --- LÝ TRÍ CHAT THƯỜNG ---
 with tab_chat:
-    chat_input = st.chat_input("Nhập câu hỏi hoặc câu truy vấn như hướng dẫn ở trên nhé")
+    chat_input = st.chat_input("Bạn hay nhập câu hỏi hoặc câu truy vấn...")
     if chat_input:
         user_input = chat_input
         # Kiểm tra xem có ký tự [query] ở đầu không
@@ -196,7 +313,7 @@ with tab_chat:
 
 # --- LÝ TRÍ TRUY VẤN SQL (EDITOR THÔNG MINH) ---
 with tab_sql:
-    st.caption("Chỉ nhập câu SQL vào bên dưới")
+    st.caption("Hãy tắt bộ gõ tiếng Việt để kích hoạt tính năng gợi ý và tự động điền cú pháp")
     sql_input = st_ace(
         value="SELECT COUNT(*) as cnt FROM highmls",
         language="sql",
@@ -205,7 +322,7 @@ with tab_sql:
         auto_update=False,
         key="sql_editor_panel"
     )
-    if st.button("Thực thi SQL 🚀"):
+    if st.button("TRUY VẤN"):
         if sql_input:
             # Tự động thêm tag [query] nếu viết ở tab SQL để Agent nhận diện
             user_input = f"[query]\n{sql_input}"
@@ -223,7 +340,7 @@ def _run_bash(cmd: str) -> str:
     cmd = cmd.strip()
     for banned in _BASH_BLACKLIST:
         if banned in cmd:
-            return f"❌ Lệnh bị chặn: `{banned}`"
+            return f"❌ Yêu cầu này bị chặn: `{banned}`"
     try:
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=_BASH_TIMEOUT,
@@ -250,15 +367,17 @@ if st.session_state.messages[-1]["role"] == "user":
             import io, contextlib
             _stdout_buf = io.StringIO()
             _stderr_buf = io.StringIO()
-            with st.spinner("Tôi đang suy nghĩ và xử lý..."):
+            with st.spinner("Xin vui lòng đợi..."):
                 with contextlib.redirect_stdout(_stdout_buf), contextlib.redirect_stderr(_stderr_buf):
                     if is_bash:
                         cmd = last_query.strip()[6:].strip()
                         bash_out = _run_bash(cmd)
                         response = f"```\n{bash_out}\n```"
-                    elif st.session_state.agent_mode == "IBFT":
-                        if iagent is None:
-                            response = "❌ Mode này chưa phát triển :)) Hãy chọn Agent Mode `A450` nhé."
+                    elif st.session_state.agent_mode != "Xử lý & phân tích dữ liệu":
+                        if is_query:
+                            response = "⚠️ Chức năng truy vấn SQL chỉ khả dụng ở mode **Xử lý & phân tích dữ liệu**."
+                        elif iagent is None:
+                            response = "❌ Module `iagent` chưa được cài đặt. Hãy chọn Agent Mode `Xử lý & phân tích dữ liệu` nhé."
                         else:
                             response = iagent.chay_agent_ibft(
                                 last_query,
@@ -284,33 +403,39 @@ if st.session_state.messages[-1]["role"] == "user":
         full_response = response
 
         # Tách phần text và code block để render đúng
-        import re as _re
-        _code_pattern = _re.compile(r"```[\s\S]*?```")
-        _parts = _code_pattern.split(response)
+        _parts = _CODE_BLOCK_PATTERN.split(response)
 
         if len(_parts) == 1:
             # Không có code block — hiệu ứng gõ chữ bình thường
             message_placeholder = st.empty()
             if len(response) < _TYPING_MAX_CHARS:
                 _typed = ""
-                for word in response.split():
+                for word in response.split(" "):
                     _typed += word + " "
-                    message_placeholder.markdown(_typed + "▌")
+                    message_placeholder.markdown(_markdown_keep_linebreaks(_typed) + "▌")
                     time.sleep(_TYPING_SPEED)
-                message_placeholder.markdown(_typed)
+                message_placeholder.markdown(_markdown_keep_linebreaks(_typed))
                 full_response = _typed
             else:
-                message_placeholder.markdown(response)
+                message_placeholder.markdown(_markdown_keep_linebreaks(response))
         else:
             # Có code block — split rồi render từng phần
-            _segments = _code_pattern.split(response)
-            # _segments = [text, code, text, code, ...]
-            for i, seg in enumerate(_segments):
-                if i % 2 == 0:
-                    if seg.strip():
-                        st.markdown(seg.strip())
-                else:
-                    st.code(seg, language=None)
+            _render_text_with_code_blocks(response)
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+        image_paths = []
+        if (
+            st.session_state.agent_mode == "Xử lý & phân tích dữ liệu"
+            and not is_bash
+            and not is_query
+            and _should_attach_report_images(response, last_query)
+        ):
+            image_paths = _get_report_images()
+            for image_path in image_paths:
+                st.image(image_path, caption=os.path.basename(image_path), use_container_width=True)
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": full_response,
+        "images": image_paths,
+    })
     st.rerun()

@@ -1,5 +1,5 @@
 # tool6.py
-# Xuất file rpt.html (nhúng tất cả PNG trong output_dir) và gửi email
+# Xuất file rpt.html (nhúng tất cả PNG trong output_dir).
 
 import os
 import json
@@ -28,8 +28,7 @@ def export_html_and_send(output_dir: str,
                           gmail_password: str   = GMAIL_APP_PASSWORD,
                           to_email: str         = TO_EMAIL) -> str:
     """
-    Nhúng toàn bộ file *.png trong output_dir vào output_dir/rpt.html,
-    rồi gửi file đó qua Gmail.
+    Nhúng toàn bộ file *.png trong output_dir vào output_dir/rpt.html.
 
     Parameters
     ----------
@@ -130,4 +129,4 @@ img  {{ max-width: 1100px; display: block;
     #     smtp.send_message(msg)
 
     # print("[tool6] ✅ Đã gửi email thành công!")
-    # return output_html
+    return output_html

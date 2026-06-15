@@ -5,14 +5,12 @@ ENV PYTHONUNBUFFERED=1
 ENV A450_BASE_DIR=/app
 ENV ENABLE_TELEGRAM_BOT=false
 ENV PORT=8080
-ENV BROWSER_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 # Cài OS dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    chromium \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
