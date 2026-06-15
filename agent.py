@@ -577,21 +577,26 @@ def _tra_cuu_giao_dich(cau_hoi: str) -> str:
 # =============================================================================
 
 def _run_etl() -> str:
-    return _etl(
+    out = _etl(
         raw_dir=os.environ.get("A450_RAW_DIR",     os.path.join(_BASE_DIR, "raw")),
         ipref_file=os.environ.get("A450_IPREF_FILE", os.path.join(_BASE_DIR, "ref", "allip.csv")),
         out_file=ETL_FILE,
     )
+    tool5.reset_tool()
+    return out
 
 def _run_feature_engineering() -> str:
-    return _feature_engineering(
+    out = _feature_engineering(
         etl_file=ETL_FILE,
         labeled_file=LABELED_FILE,
         temp_dir=os.environ.get("A450_TEMP_DIR", os.path.join(_BASE_DIR, ".tmp")),
     )
+    tool5.reset_tool()
+    return out
 
 def _run_score_report() -> str:
     _inference_and_report()  # tool4: inference + export report + charts
+    tool5.reset_tool()
     return (
         f"✅ Bước 3 hoàn tất. File lưu tại: {OUTPUT_DIR}\n"
         f"  - transactions_flagged.parquet\n"

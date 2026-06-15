@@ -451,6 +451,7 @@ if st.session_state.messages[-1]["role"] == "user":
             st.session_state.agent_mode == "Xử lý & phân tích dữ liệu"
             and not is_bash
             and not is_query
+            and not response.lstrip().startswith("❌")
             and (
                 _should_attach_report_images(response, last_query, _all_logs)
                 or _report_images_changed(report_image_snapshot)

@@ -6,6 +6,7 @@ import os
 import gc
 import time
 import pickle
+import tempfile
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
@@ -29,6 +30,43 @@ OUTPUT_DIR         = os.environ.get("A450_OUTPUT_DIR",         os.path.join(_BAS
 MODEL_PATH         = os.environ.get("A450_MODEL_PATH",         os.path.join(_BASE_DIR, _CFG["model_path"]))
 ML_SCORE_THRESHOLD = int(os.environ.get("A450_ML_SCORE_THRESHOLD", _CFG["ml_score_threshold"]))
 ML_FEATURES        = _CFG["ml_features"]
+
+
+def _validate_parquet(path: str) -> None:
+    pl.scan_parquet(path).limit(1).collect()
+
+
+def _write_parquet_atomic(df: pl.DataFrame, path: str, compression: str = "snappy") -> None:
+    output_dir = os.path.dirname(os.path.abspath(path))
+    os.makedirs(output_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.",
+        suffix=".tmp",
+        dir=output_dir,
+    )
+    os.close(fd)
+
+    try:
+        df.write_parquet(tmp_path, compression=compression)
+        _validate_parquet(tmp_path)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _validate_report_outputs(output_dir: str) -> None:
+    required = [
+        "transactions_flagged.parquet",
+        "report_users.parquet",
+        f"report_high_score_users_{ML_SCORE_THRESHOLD}.parquet",
+        "report_bookie.parquet",
+    ]
+    for filename in required:
+        _validate_parquet(os.path.join(output_dir, filename))
 
 # ============================== 1. INFERENCE SCORING ======================================
 
@@ -168,7 +206,11 @@ def _export_reports_and_figures(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set:
     #df.select(TX_COLS).write_parquet(out("transactions_labeled.parquet"), compression="snappy") #-> file nặng, chưa xuất
     
     # ===================== 2. transactions_flagged.parquet =============================
-    df.filter(pl.col("hit_any_rule") == 1).select(TX_COLS).write_parquet(out("transactions_flagged.parquet"), compression="snappy")
+    _write_parquet_atomic(
+        df.filter(pl.col("hit_any_rule") == 1).select(TX_COLS),
+        out("transactions_flagged.parquet"),
+        compression="snappy",
+    )
 
     # II. Nhóm Reports
     REPORT_COLS = ["user_id", "user_group", "total_flagged_tx", "ml_score", "bookie_tx_count", "gambler_tx_count",
@@ -177,7 +219,11 @@ def _export_reports_and_figures(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set:
                    "unique_senders", "ml_s", "ml_r"]
 
     # ===================== 3. report_users.parquet =============================
-    rpt.select(REPORT_COLS).write_parquet(out("report_users.parquet"), compression="snappy")
+    _write_parquet_atomic(
+        rpt.select(REPORT_COLS),
+        out("report_users.parquet"),
+        compression="snappy",
+    )
     
     # ===================== 4. report_users.csv =================================
     #rpt.select(REPORT_COLS).write_csv(out("report_users.csv")) -> file nặng, chưa xuất
@@ -191,7 +237,11 @@ def _export_reports_and_figures(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set:
     # lọc các userid nhóm normal với điểm ML vượt ngưỡng config
     high_score = rpt.filter((pl.col("user_group") == "normal") & (pl.col("ml_score") > ML_SCORE_THRESHOLD)).sort("ml_score", descending=True)
     # xuất file
-    high_score.write_parquet(out(f"report_high_score_users_{ML_SCORE_THRESHOLD}.parquet"), compression="snappy")
+    _write_parquet_atomic(
+        high_score,
+        out(f"report_high_score_users_{ML_SCORE_THRESHOLD}.parquet"),
+        compression="snappy",
+    )
     high_score.write_csv(out(f"report_high_score_users_{ML_SCORE_THRESHOLD}.csv"))
 
     # ===================== 7. report_bookie =================================
@@ -215,7 +265,7 @@ def _export_reports_and_figures(df: pl.DataFrame, rpt: pl.DataFrame, bookie_set:
     ).sort("total_recv_amount", descending=True)
 
     # xuất Bookie Report
-    bookie_report.write_parquet(out("report_bookie.parquet"), compression="snappy")
+    _write_parquet_atomic(bookie_report, out("report_bookie.parquet"), compression="snappy")
     bookie_report.write_csv(out("report_bookie.csv")) # tra cứu nhanh, trong report_user.parquet có rồi
 
     print(f"Report được lưu trong {time.time()-t0:.1f}s")
@@ -457,6 +507,7 @@ def _inference_and_report():
 
     _export_reports_and_figures(df, rpt, bookie_set, OUTPUT_DIR)
     _create_visualizations(df, rpt, bookie_set, OUTPUT_DIR)
+    _validate_report_outputs(OUTPUT_DIR)
 
     print(f"\n📊 Đã hoàn tất 6 charts ({time.time()-t_total:.1f}s)")
     print(f"📁 Files được lưu tại: {OUTPUT_DIR}")
