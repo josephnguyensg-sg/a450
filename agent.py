@@ -30,6 +30,7 @@
 
 import os
 import re
+import unicodedata
 
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import StructuredTool
@@ -181,6 +182,9 @@ _SYSTEM_PROMPT_PIPELINE = _CFG["system_prompt_pipeline"]
 
 _SYSTEM_PROMPT_FULL = (
     _SYSTEM_PROMPT_PIPELINE
+    + "\n\nQUY TẮC TOOL-CALL BẮT BUỘC:\n"
+    + "- Khi cần chạy tool, phải dùng cơ chế tool/function calling thật của runtime.\n"
+    + "- Không bao giờ in ra các thẻ dạng <tool_call>, <function=...>, </function> trong nội dung trả lời.\n"
     + "\n\nMÔ TẢ CỘT THAM KHẢO:\n"
     + _SCHEMA_SHORT
 )
@@ -223,6 +227,105 @@ def _nhan_dien_pipeline(q: str) -> str:
         if any(k in q for k in keywords):
             return tool_name
     return ""
+
+def _bo_dau(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", text or "").replace("đ", "d").replace("Đ", "D")
+    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+def _la_lenh_tiep_tuc(q: str) -> bool:
+    plain = re.sub(r"\s+", " ", _bo_dau(q).lower()).strip(" .!?,")
+    return plain in {
+        "next",
+        "continue",
+        "go on",
+        "tiep",
+        "tiep tuc",
+        "tiep di",
+        "lam tiep",
+        "chay tiep",
+        "co",
+        "yes",
+        "y",
+        "ok",
+        "okay",
+        "dong y",
+    }
+
+def _la_phan_anh_pipeline(q: str) -> bool:
+    plain = re.sub(r"\s+", " ", _bo_dau(q).lower()).strip()
+    if not any(step in plain for step in ("buoc 1", "buoc 2", "buoc 3", "buoc 4")):
+        return False
+    return any(
+        marker in plain
+        for marker in (
+            "bug",
+            "loi",
+            "sai",
+            "khong dung",
+            "tai sao",
+            "vi sao",
+            "sao lai",
+            "moi chay",
+            "ma da",
+            "nhay",
+            "xo",
+            "skip",
+            "bo qua",
+            "logic",
+        )
+    )
+
+def _last_completed_pipeline_step(chat_history) -> int:
+    """Tìm bước pipeline gần nhất đã hoàn tất trong lịch sử chat."""
+    for msg in reversed(chat_history or []):
+        if msg.get("role") != "assistant":
+            continue
+        content = _bo_dau(msg.get("content") or "").lower()
+        has_done = "hoan tat" in content or "hoan thanh" in content
+        is_negative_notice = any(
+            term in content
+            for term in ("chua co", "cu hon", "vui long chay", "hay bat dau")
+        )
+
+        if ("buoc 3" in content and has_done) or "f1-f6 charts" in content:
+            return 3
+        if ("buoc 2" in content and has_done) or (
+            "a450labeled.parquet" in content and not is_negative_notice
+        ):
+            return 2
+        if ("buoc 1" in content and has_done) or (
+            "a450etl.parquet" in content and not is_negative_notice
+        ):
+            return 1
+    return 0
+
+def _file_mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+def _labeled_outdated() -> bool:
+    return (
+        os.path.exists(ETL_FILE)
+        and os.path.exists(LABELED_FILE)
+        and _file_mtime(LABELED_FILE) < _file_mtime(ETL_FILE)
+    )
+
+def _infer_next_pipeline_tool(chat_history) -> str:
+    last_step = _last_completed_pipeline_step(chat_history)
+    if last_step == 1:
+        return "tool_buoc2_feature_engineering"
+    if last_step == 2:
+        return "tool_buoc3_score_report"
+    if last_step >= 3:
+        return ""
+
+    if not os.path.exists(ETL_FILE):
+        return "tool_buoc1_etl"
+    if not os.path.exists(LABELED_FILE) or _labeled_outdated():
+        return "tool_buoc2_feature_engineering"
+    return "tool_buoc3_score_report"
 
 def _la_tra_cuu_report(q: str) -> bool:
     """True nếu câu hỏi liên quan đến báo cáo user (rpt_users, highmls)."""
@@ -623,6 +726,12 @@ def _kiem_tra_dieu_kien(tool_name: str) -> str | None:
                 f"⚠️ Chưa có `{os.path.basename(LABELED_FILE)}`. "
                 f"Vui lòng chạy **Bước 2 (Feature Engineering)** trước."
             )
+        if _labeled_outdated():
+            return (
+                f"⚠️ `{os.path.basename(LABELED_FILE)}` đang cũ hơn "
+                f"`{os.path.basename(ETL_FILE)}`. "
+                f"Vui lòng chạy **Bước 2 (Feature Engineering)** trước khi chạy bước này."
+            )
         if tool_name == "tool_buoc3_score_report" and not os.path.exists(MODEL_PATH):
             return (
                 f"⚠️ Chưa có model `{os.path.basename(MODEL_PATH)}`.\n"
@@ -662,6 +771,44 @@ def _invoke_tool(ten_tool: str, arg_tool: dict) -> str:
     if tool is None:
         return f"Lỗi: Không tìm thấy tool '{ten_tool}'."
     return tool.invoke(arg_tool)
+
+
+_PSEUDO_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*<function=([A-Za-z0-9_]+)>\s*([\s\S]*?)\s*</function>\s*</tool_call>",
+    re.IGNORECASE,
+)
+
+
+def _parse_pseudo_tool_args(raw_args: str) -> dict:
+    raw_args = (raw_args or "").strip()
+    if not raw_args:
+        return {}
+    try:
+        parsed = _json.loads(raw_args)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _chay_pseudo_tool_calls_if_any(text: str) -> str:
+    """Fallback cho model in pseudo tool-call XML thay vì gọi tool thật."""
+    matches = list(_PSEUDO_TOOL_CALL_RE.finditer(text or ""))
+    if not matches:
+        return text
+
+    cleaned_text = _PSEUDO_TOOL_CALL_RE.sub("", text or "").strip()
+    outputs = []
+    for match in matches:
+        tool_name = match.group(1)
+        tool_args = _parse_pseudo_tool_args(match.group(2))
+        err = _kiem_tra_dieu_kien(tool_name)
+        if err:
+            outputs.append(err)
+            continue
+        print(f"[LOG] Pseudo tool-call → kích hoạt: {tool_name}")
+        outputs.append(str(_invoke_tool(tool_name, tool_args)))
+
+    return "\n\n".join(part for part in [cleaned_text, *outputs] if part).strip()
 
 def _log(nhanh: str, input_str: str, output_str: str):
     print(f"\n{'='*60}")
@@ -751,6 +898,35 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
         return _MO_TA_CHUC_NANG
 
     # =========================================================
+    # NHÁNH C0.25 — user phản ánh lỗi logic pipeline, không chạy tool
+    # =========================================================
+    if _la_phan_anh_pipeline(q):
+        out = (
+            "Bạn nói đúng: pipeline phải chạy tuần tự **Bước 1 → Bước 2 → Bước 3**. "
+            "Câu này đang phản ánh lỗi logic nên tôi sẽ không kích hoạt tool nào. "
+            "Nếu muốn chạy tiếp từ trạng thái hiện tại, hãy nhập `next` hoặc `tiếp tục`."
+        )
+        _log("C0.25", user_question, out)
+        return out
+
+    # =========================================================
+    # NHÁNH C0.5 — user xác nhận / yêu cầu chạy bước kế tiếp
+    # =========================================================
+    if _la_lenh_tiep_tuc(q):
+        next_tool = _infer_next_pipeline_tool(chat_history)
+        if not next_tool:
+            out = "✅ Bước 3 đã hoàn tất. Bạn có thể tra cứu báo cáo hoặc chạy query SQL."
+            _log("C0.5", user_question, out)
+            return out
+
+        err = _kiem_tra_dieu_kien(next_tool)
+        if err:
+            _log("C0.5", user_question, f"→ guard chặn: {next_tool}")
+            return err
+        _log("C0.5", user_question, f"→ bước kế tiếp: {next_tool}")
+        return str(_invoke_tool(next_tool, {}))
+
+    # =========================================================
     # NHÁNH C1 — PIPELINE keyword (ưu tiên trước tra cứu)
     # =========================================================
     tool_name = _nhan_dien_pipeline(q)
@@ -798,6 +974,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
             result = _invoke_llm(messages).content
         else:
             result = ai_msg.content
+        result = _chay_pseudo_tool_calls_if_any(str(result))
         _log("C4", user_question, result)
         return result
 
@@ -822,6 +999,7 @@ def chay_agent_aml(user_question: str, chat_history=None) -> str:
     else:
         result = ai_msg.content
 
+    result = _chay_pseudo_tool_calls_if_any(str(result))
     _log("C5", user_question, result)
     return result
 
