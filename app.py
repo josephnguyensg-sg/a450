@@ -53,17 +53,40 @@ def _get_report_images() -> list[str]:
     return sorted(glob.glob(os.path.join(_OUTPUT_DIR, "*.png")))
 
 
-def _should_attach_report_images(response: str, user_query: str) -> bool:
-    text = f"{response}\n{user_query}".lower()
+def _get_report_image_snapshot() -> dict[str, float]:
+    snapshot = {}
+    for image_path in _get_report_images():
+        if os.path.exists(image_path):
+            snapshot[image_path] = os.path.getmtime(image_path)
+    return snapshot
+
+
+def _report_images_changed(before_snapshot: dict[str, float]) -> bool:
+    after_snapshot = _get_report_image_snapshot()
+    if not after_snapshot:
+        return False
+    return any(
+        image_path not in before_snapshot
+        or after_snapshot[image_path] > before_snapshot[image_path]
+        for image_path in after_snapshot
+    )
+
+
+def _should_attach_report_images(response: str, user_query: str, logs: str = "") -> bool:
+    text = f"{response}\n{user_query}\n{logs}".lower()
     triggers = (
         "bước 3 hoàn tất",
         "buoc 3 hoan tat",
+        "tool_buoc3_score_report",
         "xuất báo cáo",
         "xuat bao cao",
         "tạo chart",
         "tao chart",
         "tạo biểu đồ",
         "tao bieu do",
+        "f1–f6 charts",
+        "files được lưu tại",
+        "files duoc luu tai",
         "hiển thị ảnh",
         "hien thi anh",
         "hình ảnh",
@@ -361,6 +384,7 @@ if st.session_state.messages[-1]["role"] == "user":
     last_query = st.session_state.messages[-1]["content"]
     is_bash  = last_query.strip().lower().startswith("[bash]")
     is_query = last_query.strip().lower().startswith("[query]")
+    report_image_snapshot = _get_report_image_snapshot()
 
     with st.chat_message("assistant", avatar=BOT_AVATAR):
         try:
@@ -394,8 +418,8 @@ if st.session_state.messages[-1]["role"] == "user":
         # ── Hiển thị stdout/stderr logs nếu có ───────────────────────────
         _logs = _stdout_buf.getvalue().strip()
         _errs = _stderr_buf.getvalue().strip()
+        _all_logs = "\n".join(filter(None, [_logs, _errs]))
         if _logs or _errs:
-            _all_logs = "\n".join(filter(None, [_logs, _errs]))
             with st.expander("📋 Logs", expanded=False):
                 st.code(_all_logs, language=None)
 
@@ -427,7 +451,10 @@ if st.session_state.messages[-1]["role"] == "user":
             st.session_state.agent_mode == "Xử lý & phân tích dữ liệu"
             and not is_bash
             and not is_query
-            and _should_attach_report_images(response, last_query)
+            and (
+                _should_attach_report_images(response, last_query, _all_logs)
+                or _report_images_changed(report_image_snapshot)
+            )
         ):
             image_paths = _get_report_images()
             for image_path in image_paths:
